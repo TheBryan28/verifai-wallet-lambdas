@@ -323,10 +323,17 @@ def get_analysis(analysis_id):
     result = {
         "id": analysis_id,
         "status": item["status"]["S"],
+        "stage": current_stage(item),
         "country": item["country"]["S"],
         "created_at": item["created_at"]["S"],
         "from_cache": item.get("from_cache", {}).get("BOOL", False),
     }
+    if "stage_updated_at" in item:
+        result["stage_updated_at"] = item["stage_updated_at"]["S"]
+    # Counters the app shows while waiting ("16 clauses on 3 pages, 23 legal sources")
+    for counter in ("pages", "clause_count", "legal_sources"):
+        if counter in item:
+            result[counter] = int(item[counter]["N"])
     if "error_message" in item:
         result["error_message"] = item["error_message"]["S"]
     if result["status"] == AnalysisStatus.COMPLETED.value and "report_key" in item:
@@ -336,6 +343,17 @@ def get_analysis(analysis_id):
             ExpiresIn=URL_EXPIRATION_SECONDS,
         )
     return response(200, result)
+
+
+def current_stage(item):
+    """Stage of the pipeline, as written by extract and analyze (see lambdas/shared/progress.py)."""
+    status = item["status"]["S"]
+    if status == AnalysisStatus.PENDING.value:
+        return "WAITING_FOR_UPLOAD"
+    if status == AnalysisStatus.PROCESSING.value:
+        # The workflow started but extract has not reported a stage yet
+        return item.get("stage", {}).get("S", "RECEIVED")
+    return status
 
 
 def delete_analysis(analysis_id):

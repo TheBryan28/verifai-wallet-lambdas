@@ -53,7 +53,15 @@ class FakeBedrock:
         return {"output": {"message": {"content": [{"toolUse": {"name": "report_findings", "input": {"findings": findings}}}]}},
                 "stopReason": "tool_use", "usage": {"inputTokens": 1000, "outputTokens": 200}}
 
-s3, bedrock = FakeS3(), FakeBedrock()
+class FakeDynamo:
+    def __init__(self): self.stages = []
+    def update_item(self, **req):
+        assert req["ConditionExpression"] == "#status = :processing"
+        self.stages.append(req["ExpressionAttributeValues"][":stage"]["S"])
+
+s3, bedrock, dynamo = FakeS3(), FakeBedrock(), FakeDynamo()
+import progress
+progress._dynamodb = dynamo
 
 # ---- corpus sources ----
 ley820 = """LEY 820 DE 2003
@@ -129,6 +137,8 @@ an.s3, an.bedrock = s3, bedrock
 s3.objects["processed/abc/text.json"] = json.dumps({"country": "CO", "clauses": clauses}).encode()
 result = an.lambda_handler({"analysis_id": "abc", "bucket": "verifai-auditoria", "processed_key": "processed/abc/text.json"}, None)
 report = json.loads(s3.objects[result["report_key"]])
+print("STAGES", dynamo.stages)
+assert dynamo.stages == ["SEARCHING_LAW", "ANALYZING_WITH_AI", "PREPARING_REPORT"], dynamo.stages
 print("RESULT", result, "llm_calls", report["usage"]["llm_calls"], "summary", report["summary"])
 assert report["usage"]["llm_calls"] == 1, "expected one Bedrock call per contract"
 assert result["corpus_version"] == "CO@2026-11"

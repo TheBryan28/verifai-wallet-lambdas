@@ -26,6 +26,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 import lexical
+import progress
 
 MODEL_ID = os.environ["MODEL_ID"]
 EMBEDDING_MODEL_ID = os.environ.get("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
@@ -88,6 +89,7 @@ def lambda_handler(event, context):
         raise EmptyDocument("No clauses to analyze")
     country = document["country"].upper()
 
+    progress.set_stage(analysis_id, progress.SEARCHING_LAW, clause_count=len(clauses))
     manifest = read_json(bucket, "corpus/manifest.json")
     codes, coverage = resolve_layers(manifest, country)
     layers = [load_layer(bucket, code, manifest["jurisdictions"][code]) for code in codes]
@@ -96,6 +98,8 @@ def lambda_handler(event, context):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         sources_per_clause = list(pool.map(lambda c: retrieve_sources(c["text"], layers), clauses))
 
+    legal_sources = len({s["id"] for sources in sources_per_clause for s in sources})
+    progress.set_stage(analysis_id, progress.ANALYZING_WITH_AI, legal_sources=legal_sources)
     # Usually a single call; very long contracts are split into parts that run in parallel
     language = LANGUAGES.get(country, "English")
     starts = range(0, len(clauses), CLAUSES_PER_CALL)
@@ -112,6 +116,7 @@ def lambda_handler(event, context):
     usage["llm_calls"] = len(usages)
     usage["embedding_calls"] = len(clauses)
 
+    progress.set_stage(analysis_id, progress.PREPARING_REPORT)
     report_key = f"reports/{analysis_id}/report.json"
     report = {
         "analysis_id": analysis_id,

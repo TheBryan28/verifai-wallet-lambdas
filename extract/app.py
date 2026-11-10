@@ -20,6 +20,8 @@ from botocore.exceptions import ClientError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+import progress
+
 ANALYSES_TABLE = os.environ["ANALYSES_TABLE"]
 TEXTRACT_REGION = os.environ.get("TEXTRACT_REGION", os.environ["AWS_REGION"])
 MAX_SIZE_BYTES = int(os.environ.get("MAX_SIZE_BYTES", str(10 * 1024 * 1024)))
@@ -98,17 +100,20 @@ def lambda_handler(event, context):
     if declared and declared != content_type:
         raise ContentTypeMismatch(f"Declared {declared}, received {content_type}")
 
+    progress.set_stage(analysis_id, progress.EXTRACTING_TEXT)
     if content_type == "application/pdf":
         pages, method = extract_pdf(data), "pdf_text"
     else:
         pages, method = [extract_image(data)], "textract"
 
+    progress.set_stage(analysis_id, progress.PROTECTING_PERSONAL_DATA, pages=len(pages))
     pages = remove_page_furniture([normalize_whitespace(page) for page in pages])
     pseudonymizer = Pseudonymizer()
     pages = [pseudonymizer.apply(page) for page in pages]
     if sum(len(page) for page in pages) < 20:
         raise NoTextFound("The document does not contain readable text")
 
+    progress.set_stage(analysis_id, progress.IDENTIFYING_CLAUSES)
     clauses = split_into_clauses(pages)
 
     processed_key = f"processed/{analysis_id}/text.json"

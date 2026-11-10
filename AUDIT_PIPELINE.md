@@ -300,6 +300,7 @@ Si `extract` y `analyze` ya existían vacías, ábrelas y continúa desde el pas
 | `extract` | `ANALYSES_TABLE` | `verifai-analyses` |
 | `extract` | `REQUIRE_CHECKSUM` | `false` mientras pruebas desde la consola; `true` cuando las subidas vengan de la app |
 | `extract` | `TEXTRACT_REGION` | Solo si Textract no está disponible en `eu-south-2`: una región de la UE donde sí lo esté |
+| `analyze` | `ANALYSES_TABLE` | `verifai-analyses` (para informar las etapas de progreso) |
 | `analyze` | `MODEL_ID` | El **Inference profile ID** copiado en el paso 1.2 |
 | `analyze` | `BEDROCK_REGION` | Solo si `eu-south-2` no es región de origen del perfil (paso 1.2) |
 | `index-corpus` | `BUCKET` | `verifai-auditoria` |
@@ -696,6 +697,24 @@ El informe incluye además `model_id` (el perfil de inferencia de `MODEL_ID`). V
 
 ---
 
+### 5.10 Etapas de progreso
+
+Mientras el análisis está en `PROCESSING`, `extract` y `analyze` escriben en el ítem la etapa en la que van (`stage`, `stage_updated_at`) y algunos contadores. Lo hace `shared/progress.py`, con una escritura condicional que solo aplica mientras el estado sea `PROCESSING`, así que nunca sobrescribe `COMPLETED` ni `FAILED`. Si una actualización falla, se registra en el log y el análisis continúa.
+
+| `stage` | Lo escribe | Contador que agrega | Mensaje sugerido en la app |
+|---|---|---|---|
+| `WAITING_FOR_UPLOAD` | `verifai-api` (estado `PENDING`) | | Esperando el documento |
+| `RECEIVED` | `verifai-api` (estado `PROCESSING` sin etapa todavía) | | Documento recibido |
+| `EXTRACTING_TEXT` | `extract` | | Extrayendo el texto |
+| `PROTECTING_PERSONAL_DATA` | `extract` | `pages` | Protegiendo tus datos personales |
+| `IDENTIFYING_CLAUSES` | `extract` | | Identificando las cláusulas |
+| `SEARCHING_LAW` | `analyze` | `clause_count` | Buscando las normas aplicables |
+| `ANALYZING_WITH_AI` | `analyze` | `legal_sources` | Analizando con IA |
+| `PREPARING_REPORT` | `analyze` | | Preparando el informe |
+| `COMPLETED` / `FAILED` | `verifai-api`, a partir de `status` | | Informe listo / No se pudo completar |
+
+`GET /analyses/{id}` devuelve `stage` siempre y, cuando existen, `stage_updated_at`, `pages`, `clause_count` y `legal_sources`. Requiere los permisos `dynamodb:UpdateItem` de `extract` y `analyze` (sección 7.3) y la variable `ANALYSES_TABLE` en `analyze`.
+
 ## 6. Modelo de datos: `verifai-analyses`
 
 Clave de partición `id` (string). Atributo de TTL: `ttl`.
@@ -739,6 +758,7 @@ Las tres: **Python 3.13, x86_64**, handler **`app.lambda_handler`**.
 | `extract` | `TEXTRACT_REGION` | No | Región de la Lambda | Una región de la UE con Textract |
 | `extract` | `MAX_SIZE_BYTES` | No | `10485760` | 10 MB |
 | `extract` | `REQUIRE_CHECKSUM` | No | `false` | `true` cuando suba la app |
+| `analyze` | `ANALYSES_TABLE` | Sí | | `verifai-analyses`. Sin ella el análisis funciona, pero la app no ve las etapas |
 | `analyze` | `MODEL_ID` | Sí | | ID del perfil de inferencia EU de Claude |
 | `analyze` | `BEDROCK_REGION` | No | Región de la Lambda | |
 | `analyze` | `EMBEDDING_MODEL_ID` | No | `amazon.titan-embed-text-v2:0` | Debe coincidir con `meta.json` del corpus |
@@ -765,7 +785,7 @@ Las tres: **Python 3.13, x86_64**, handler **`app.lambda_handler`**.
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow", "Action": "dynamodb:GetItem", "Resource": "arn:aws:dynamodb:eu-south-2:*:table/verifai-analyses"},
+    {"Effect": "Allow", "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"], "Resource": "arn:aws:dynamodb:eu-south-2:*:table/verifai-analyses"},
     {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::verifai-auditoria/uploads/*"},
     {"Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::verifai-auditoria/processed/*"},
     {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::verifai-auditoria"},
@@ -793,6 +813,7 @@ Las tres: **Python 3.13, x86_64**, handler **`app.lambda_handler`**.
     },
     {"Effect": "Allow", "Action": "s3:GetObject", "Resource": ["arn:aws:s3:::verifai-auditoria/corpus/*", "arn:aws:s3:::verifai-auditoria/processed/*"]},
     {"Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::verifai-auditoria/reports/*"},
+    {"Effect": "Allow", "Action": "dynamodb:UpdateItem", "Resource": "arn:aws:dynamodb:eu-south-2:*:table/verifai-analyses"},
     {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::verifai-auditoria"}
   ]
 }

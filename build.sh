@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$ROOT/build"
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 
-# build <lambda folder> <use shared lexical.py: yes|no> <pip packages...>
+# build <lambda folder> <copy shared/*.py: yes|no> <pip packages...>
 build() {
   local name="$1" shared="$2"; shift 2
   local target="$BUILD/$name"
@@ -23,12 +23,12 @@ build() {
     --ignore-requires-python "$@"
   cp "$ROOT/$name/app.py" "$target/"
   if [ "$shared" = "yes" ]; then
-    cp "$ROOT/shared/lexical.py" "$target/"
+    cp "$ROOT"/shared/*.py "$target/"
   fi
   (cd "$target" && zip -qr "$BUILD/$name.zip" .)
   echo "$BUILD/$name.zip ($(du -h "$BUILD/$name.zip" | cut -f1))"
 }
 
-build extract no pypdf
+build extract yes pypdf
 build analyze yes numpy snowballstemmer
 build index-corpus yes numpy snowballstemmer
