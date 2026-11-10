@@ -342,8 +342,9 @@ def delete_analysis(analysis_id):
     key = {"id": {"S": analysis_id}}
     if "Item" not in dynamodb.get_item(TableName=ANALYSES_TABLE, Key=key):
         return response(404, {"error": "Analysis not found"})
-    # Cached reports (reports/results/...) are shared between users and are not deleted here
-    for prefix in ("uploads", "processed"):
+    # The analysis report (reports/<id>/) is deleted too. Cached reports (reports/results/...)
+    # are shared between users and are not deleted here.
+    for prefix in ("uploads", "processed", "reports"):
         objects = s3.list_objects_v2(Bucket=BUCKET, Prefix=f"{prefix}/{analysis_id}/").get("Contents", [])
         if objects:
             s3.delete_objects(Bucket=BUCKET, Delete={"Objects": [{"Key": o["Key"]} for o in objects]})
